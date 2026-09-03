@@ -42,8 +42,8 @@ def build_with_ground_truth(base_transactions):
     for txn in base_transactions:
         mismatch_type = random.choices(
             ["clean", "rounding", "date_shift", "missing_in_statement",
-             "missing_in_ledger", "duplicate_in_statement"],
-            weights=[55, 15, 12, 8, 6, 4],
+             "missing_in_ledger", "duplicate_in_statement", "ambiguous_amount"],
+            weights=[50, 15, 12, 8, 6, 4, 5],
             k=1,
         )[0]
 
@@ -77,7 +77,13 @@ def build_with_ground_truth(base_transactions):
             dup_row["txn_id"] = txn["txn_id"] + "_DUP"
             statement_rows.append(dup_row)
             ground_truth_rows.append({"txn_id": txn["txn_id"] + "_DUP", "true_label": "duplicate_in_statement"})
-
+        elif mismatch_type == "ambiguous_amount":
+            # A discrepancy too large to be simple rounding, same date —
+            # rules can't confidently name this. Could be a partial refund,
+            # a fee dispute, a manual adjustment — needs judgment.
+            statement_row["amount"] = round(txn["amount"] - random.uniform(50, 500), 2)
+            ledger_rows.append(ledger_row)
+            statement_rows.append(statement_row)
     return (
         pd.DataFrame(ledger_rows),
         pd.DataFrame(statement_rows),
