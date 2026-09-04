@@ -360,14 +360,7 @@ if os.path.exists(audit_path):
         if isinstance(loaded, dict):
 
             audit_data = loaded
-
-            possible_summary = loaded.get(
-                "loop_closure_summary",
-                loaded.get("summary", {}),
-            )
-
-            if isinstance(possible_summary, dict):
-                summary = possible_summary
+            summary = loaded  # investigate.py writes these keys flat, not nested
 
     except (
         json.JSONDecodeError,
@@ -391,21 +384,9 @@ ai_investigations = len(needs_llm)
 # Prefer the persisted audit report when it exposes these
 # values. Otherwise derive them from the routing population.
 
-ai_auto_resolved = summary.get(
-    "ai_auto_resolved",
-    summary.get(
-        "auto_resolved_by_ai",
-        None,
-    ),
-)
+ai_auto_resolved = summary.get("ai_auto_resolved_count", None)
 
-human_escalations = summary.get(
-    "human_escalations",
-    summary.get(
-        "escalated_to_human",
-        None,
-    ),
-)
+human_escalations = summary.get("escalated_to_human_count", None)
 
 
 # Convert valid numeric values safely.
