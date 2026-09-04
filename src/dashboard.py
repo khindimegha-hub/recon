@@ -12,7 +12,7 @@ import os
 sys.path.append(os.path.dirname(__file__))
 from reconcile import run_reconciliation, load_data
 
-st.set_page_config(page_title="AI Ledger Reconciliation Engine", layout="wide", page_icon="💠")
+st.set_page_config(page_title="Recon — AI Ledger Reconciliation Engine", layout="wide", page_icon="💠")
 
 # ---------------------------------------------------------------- styling
 st.markdown("""
@@ -89,13 +89,13 @@ scoring = results["scoring"]
 
 # ---------------------------------------------------------------- header
 st.markdown(
-    '<div class="hero-title">AI Ledger Reconciliation Engine'
+    '<div class="hero-title">Recon'
     '<span class="badge">● LIVE</span></div>',
     unsafe_allow_html=True,
 )
 st.markdown(
-    '<div class="hero-sub">Deterministic rule-based matching, with AI reserved strictly '
-    'for exceptions no rule can confidently explain.</div>',
+    '<div class="hero-sub">AI Ledger Reconciliation Engine — deterministic rule-based matching, '
+    'with AI reserved strictly for exceptions no rule can confidently explain.</div>',
     unsafe_allow_html=True,
 )
 
