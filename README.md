@@ -1,110 +1,1417 @@
 # Recon — AI Ledger Reconciliation Engine
 
-A reconciliation system that matches an internal transaction ledger against a bank/payment gateway statement — automatically resolving what it can prove with deterministic rules, and calling an LLM only for the residual cases that genuinely require judgment.
+> **A hybrid finance-ops agent that reconciles ledger and bank transactions, proves what can be matched deterministically, investigates ambiguous exceptions with AI, and escalates only what still needs human judgment.**
 
-Built for Razorpay's AI Buildathon (AI Finance Controller track).
+Recon is an **AI-powered ledger reconciliation engine** built for the **Razorpay AI Buildathon 2026 — Track 04: AI Finance Controller**.
 
-## The problem
+The core idea is simple:
 
-Every business that touches money runs at least two independent records of the same transactions — an internal ledger and a bank or payment gateway statement. These drift out of sync constantly: settlement delays, rounding, duplicate retries, partial refunds, logging gaps. Today this gets reconciled by hand in spreadsheets, which doesn't scale and is error-prone. Recon is a small, working version of that reconciliation layer.
+**Don't use AI where rules can prove the answer. Use AI only where deterministic reconciliation runs out.**
 
-## Live demo
+---
 
-Run `streamlit run src/dashboard.py` for the dashboard, or `python src/investigate.py` for the full pipeline with LLM output in the terminal.
+## 🎯 Problem
 
-## Architecture
-Ledger CSV Statement CSV
-│ │
-└────────┬───────────┘
-▼
-Exact Match (txn_id)
-▼
-Fuzzy Match (merchant + amount/date tolerance)
-▼
-Rule-Based Classification
-(rounding, date_shift, duplicate,
-missing_in_ledger, missing_in_statement)
-▼
-┌─────────┴─────────┐
-▼ ▼
-Confidently Genuinely
-classified ambiguous
-(no LLM call) ▼
-│ LLM Investigator
-│ (structured JSON,
-│ schema-validated)
-└─────────┬─────────┘
-▼
-Confidence-Based Routing
-(auto-resolve or escalate
-to human review)
-▼
-Reconciliation Report
-+ Audit JSON + Dashboard
+Financial reconciliation is still highly manual.
 
-## Design principle
+A finance controller may need to compare:
 
-**Deterministic rules handle everything provable. AI handles only what requires judgment.**
+- Internal ledger transactions
+- Bank statements
+- Transaction IDs
+- Amounts
+- Dates
+- Merchant references
+- Duplicate entries
+- Missing transactions
+- Settlement differences
 
-A ₹1 rounding difference or a 2-day settlement delay doesn't need an LLM call — a fixed rule explains it instantly, consistently, and for free. The LLM is only invoked on the residual exceptions no rule can confidently name (in this build: amount discrepancies too large to be rounding, with no other explanation). This keeps the system fast, cheap, and auditable — every classification either traces to a named rule or to a validated LLM response, never to an opaque black box.
+The difficult part is not identifying obvious matches.
 
-This also reflects an explicit safety boundary: **the LLM never creates, modifies, or moves a financial transaction.** It only classifies exceptions and recommends a review action; all state changes remain deterministic.
+The difficult part is efficiently handling the **exceptions**.
 
-### Where the AI acts as an agent, and where it deliberately doesn't
+A production-quality reconciliation system therefore needs to:
 
-The LLM component (`llm_investigator.py`) functions as a bounded investigator agent: given an ambiguous exception, it independently decides how to classify it, what evidence supports that classification, and what action to recommend — without a human writing that logic case-by-case. Its output then drives a real decision: `investigate.py` routes each investigated case based on the AI's own confidence score — auto-resolved above 0.85, escalated to human review below it — so the system closes the loop instead of just producing a recommendation nobody acts on. Its authority is still deliberately narrow: it cannot query additional data sources, retry with a different strategy, or take any action beyond returning a structured recommendation and a routing decision. Every other stage of the pipeline (matching, rule classification, metric scoring) is intentionally non-agentic — fixed, auditable logic, because those are cases where a deterministic answer already exists and an agent would add risk without adding value.
+1. Match obvious transactions automatically.
+2. Detect amount/date discrepancies.
+3. Identify missing or duplicate transactions.
+4. Investigate ambiguous exceptions.
+5. Decide when automation is safe.
+6. Escalate uncertain cases to a human.
+7. Maintain an auditable explanation of every decision.
 
-## Stack
+That's what Recon is designed to demonstrate.
 
-- **Python + pandas** — exact/fuzzy matching, rule-based classification
-- **Groq API** (`openai/gpt-oss-20b`) — structured exception investigation, JSON-only output, schema-validated before use
-- **Streamlit + Plotly** — dashboard
-- **Synthetic data generator** — produces both datasets *and* a hidden ground-truth answer key, so accuracy is measured, not claimed
+---
 
-## Why a ground-truth answer key
+# 🚀 What Recon Does
 
-Most hackathon reconciliation demos report a match rate and stop there. Recon goes further: the data generator records the *true* reason behind every discrepancy before the engine ever sees it, so the engine's classifications can be scored against a real answer key afterward — not just eyeballed.
+Recon processes transactions through a layered reconciliation pipeline:
 
-**Current benchmark (synthetic dataset, 66 ledger transactions):**
-- Match rate: 97.0%
-- Classification accuracy vs. ground truth: 94.6% (70/74 correctly explained)
-- Throughput: 1,700+ transactions/sec for the deterministic layer
-- 7 of 74 total discrepancies were ambiguous enough to require LLM investigation; the rest were resolved by named rules alone
-- Of those 7: 6 auto-resolved by AI confidence routing, 1 escalated to human review — **73 of 74 total items required zero human action**
+```text
+                 ┌───────────────────────────┐
+                 │     Ledger Transactions    │
+                 └─────────────┬─────────────┘
+                               │
+                               ▼
+                 ┌───────────────────────────┐
+                 │      Bank Statement        │
+                 └─────────────┬─────────────┘
+                               │
+                               ▼
+              ┌────────────────────────────────┐
+              │     Deterministic Matching      │
+              │                                │
+              │  • Exact transaction ID        │
+              │  • Amount comparison            │
+              │  • Date tolerance               │
+              │  • Merchant normalization       │
+              │  • Fuzzy matching               │
+              └───────────────┬────────────────┘
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+              Resolved                  Exception
+                 │                         │
+                 ▼                         ▼
+        ┌─────────────────┐      ┌────────────────────┐
+        │ Rule-based      │      │ Exception          │
+        │ Classification  │      │ Classification     │
+        └────────┬────────┘      └──────────┬─────────┘
+                 │                          │
+                 │                          ▼
+                 │                 ┌────────────────────┐
+                 │                 │ AI Investigator    │
+                 │                 │                    │
+                 │                 │ • Context          │
+                 │                 │ • Reasoning        │
+                 │                 │ • Confidence       │
+                 │                 │ • Recommendation   │
+                 │                 └─────────┬──────────┘
+                 │                           │
+                 │              ┌────────────┴────────────┐
+                 │              │                         │
+                 │         High confidence          Low confidence
+                 │              │                         │
+                 │              ▼                         ▼
+                 │       Auto-resolve             Human review
+                 │
+                 └──────────────────┬────────────────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │ Audit JSON +        │
+                         │ Streamlit Dashboard │
+                         └─────────────────────┘
+```
 
-## Known limitations
+---
 
-- The LLM investigator sees only the two transaction records in isolation — no fee schedule, no historical baseline, no merchant-level pattern. In testing, this sometimes led it to guess "rounding error" for discrepancies too large to actually be rounding. With richer context (a fee table, historical variance per merchant), classification precision would improve. This is a scope decision made under a tight build deadline, not an unknown gap.
-- Fuzzy matching currently pairs on merchant + amount/date tolerance with greedy first-match assignment; a production version would need conflict resolution when multiple candidates are plausible.
-- Synthetic data only, at a small scale (dozens of transactions) — chosen deliberately to keep the ground-truth benchmark exact and the live demo fast, not because the approach doesn't scale. The matching logic itself is O(n) for the exact-match layer; the fuzzy layer is the part that would need optimization (e.g., blocking by merchant before pairwise comparison) at real transaction volumes.
-- The 0.85 auto-resolve confidence threshold is a reasonable starting point, not a tuned value — a production version would calibrate this against labeled outcomes over time.
+# 🧠 Core Design Principle
 
-## What broke, and how I got out
+## Deterministic first. AI second. Human last.
 
-Real problems hit during the build, in order:
+Recon intentionally does **not** send every transaction to an LLM.
 
-1. **`TypeError: Object of type Timestamp is not JSON serializable`** — pandas loads the `date` column as a `Timestamp` object (needed for date-tolerance math elsewhere in the pipeline), but that same object can't be passed to `json.dumps` when sending a record to the LLM. Fixed by converting to a plain date string right before serialization, in one dedicated function (`_to_serializable`), rather than changing how dates are loaded everywhere else and risking breaking the matching logic.
+Instead:
 
-2. **Anthropic API returned a 400 — insufficient credit balance.** No budget to add credits. Rather than block on it, switched the LLM investigator to Groq's free tier. Since `investigate_exception()` was already written as a single function with a clean interface (input records in, validated dict out), swapping providers meant changing the client and model name only — nothing else in the pipeline needed to change at all.
+```text
+Can deterministic rules prove the result?
+                │
+          ┌─────┴─────┐
+         YES           NO
+          │             │
+          ▼             ▼
+     Resolve it     Investigate
+                    with AI
+                       │
+                ┌──────┴──────┐
+             Confident      Uncertain
+                │               │
+                ▼               ▼
+           Auto-resolve    Human review
+```
 
-3. **Guessed model names that didn't exist on the account (`llama-3.3-70b-versatile`, then `llama-3.1-8b-instant`) — both 404'd.** Stopped guessing and queried the account's actual available models directly via Groq's `/models` endpoint, then used the exact string it returned (`openai/gpt-oss-20b`). Confirmed working on the first try after that.
+This gives the system three important properties:
 
-4. **Dashboard's chart and table kept a white background despite a dark theme config that should have overridden it.** Rather than keep patching a framework default that wasn't behaving as documented, switched to a chart library (Plotly) and a hand-built HTML table where every color is set explicitly in code — removing the dependency on theme inheritance working correctly at all.
+- **High throughput** for routine reconciliation
+- **Controlled AI usage** for ambiguous cases
+- **Safe escalation** when confidence is insufficient
 
-5. **Dashboard's "Total Transactions" and match rate briefly disagreed with the CLI report** (86.5% vs. 97.0%) — traced to a metric calculation that summed two differently-sized datasets together. Fixed by reusing the same `total = len(ledger)` definition the CLI report already used.
+> **Recon doesn't use AI to guess what can already be proven — it only reaches for a model when deterministic rules run out.**
 
-6. **A near-identical bug resurfaced in the loop-closure summary** ("67 resolved" out of "66 total" — a number exceeding its own denominator). Same root cause as #5: blending two differently-scoped counts into one number. Fixed by explicitly labeling and reporting both denominators separately instead of forcing one number to represent two different things.
+---
 
-The common thread: every fix kept the interface between components stable (same function signatures, same return shapes) so a fix in one layer never cascaded into rewriting the others — and the same class of bug (blending two different-sized populations into one count) showed up twice, which is itself a useful lesson about being consistent with what a "total" means across a codebase.
+# ✨ Key Features
 
-## Running it
+### 1. Exact Matching
+
+Transactions are first matched using transaction IDs.
+
+This handles the highest-confidence reconciliation cases with minimal computation.
+
+---
+
+### 2. Near-Match Detection
+
+When the transaction ID matches but financial attributes differ, Recon checks:
+
+- Amount
+- Transaction date
+- Merchant information
+
+Examples:
+
+```text
+Ledger amount:    ₹10,000.00
+Bank amount:      ₹10,000.50
+
+→ Rounding difference
+```
+
+or:
+
+```text
+Ledger date:      2026-08-10
+Bank date:        2026-08-11
+
+→ Date shift
+```
+
+---
+
+### 3. Fuzzy Matching
+
+For transactions where an exact transaction ID is unavailable, Recon can identify candidates using:
+
+- Merchant similarity
+- Amount equality/tolerance
+- Date tolerance
+
+This helps recover matches that would otherwise appear as missing transactions.
+
+---
+
+### 4. Exception Classification
+
+Transactions are classified into categories such as:
+
+```text
+clean
+rounding
+amount_mismatch_needs_review
+duplicate_in_statement
+missing_in_ledger
+date_shift
+missing_in_statement
+```
+
+This converts a raw reconciliation output into an actionable exception queue.
+
+---
+
+### 5. AI Exception Investigator
+
+Only ambiguous exceptions are sent to the AI investigator.
+
+The investigator receives transaction context and returns:
+
+- Classification
+- Explanation
+- Recommendation
+- Confidence
+
+Example:
+
+```text
+Transaction: TXN1015
+
+Finding:
+The bank amount differs slightly from the ledger amount.
+
+Reason:
+The difference is consistent with a small rounding adjustment.
+
+Recommendation:
+Accept as rounding difference.
+
+Confidence:
+0.93
+
+Action:
+AUTO-RESOLVE
+```
+
+---
+
+### 6. Confidence-Based Routing
+
+AI output is not automatically trusted.
+
+Recon uses a confidence threshold:
+
+```text
+Confidence >= 0.85
+        │
+        ▼
+   Auto-resolve
+
+
+Confidence < 0.85
+        │
+        ▼
+   Human review
+```
+
+This creates an explicit safety boundary around AI decisions.
+
+---
+
+### 7. Audit Trail
+
+The pipeline produces a structured reconciliation report containing:
+
+- Matching results
+- Classifications
+- AI investigations
+- Confidence scores
+- Recommendations
+- Escalations
+- Performance metrics
+
+This makes the reconciliation process inspectable rather than a black box.
+
+---
+
+# 📊 Current Benchmark
+
+The current synthetic evaluation contains:
+
+- **66 ledger transactions**
+- Additional statement-side records for exception evaluation
+- **74 total classified items**
+
+Results from the current pipeline:
+
+| Metric | Result |
+|---|---:|
+| Ledger transactions | **66** |
+| Exact matches | **41** |
+| Near matches | **23** |
+| Fuzzy matches | **0** |
+| Residual unmatched records | **10** |
+| Match rate | **97.0%** |
+| Classification accuracy | **94.6% (70/74)** |
+| Deterministic automation | **90.5% (67/74)** |
+| AI investigations | **7** |
+| AI auto-resolved | **6** |
+| Human escalations | **1** |
+| Zero-human-action | **73/74 (98.6%)** |
+
+### Throughput
+
+Local deterministic runs have processed the dataset at **900+ transactions/sec**.
+
+Actual throughput varies with machine, Python process startup, file I/O, and run timing, so the benchmark should be treated as an observed local performance measurement rather than a production capacity guarantee.
+
+---
+
+# 📐 Understanding the Metrics
+
+The dashboard intentionally separates different populations and metrics.
+
+## Match Rate
+
+```text
+(clean + near + fuzzy) / ledger transactions
+```
+
+For the current dataset:
+
+```text
+(41 + 23 + 0) / 66 = 97.0%
+```
+
+This measures how many ledger transactions were covered by a corresponding bank-side record.
+
+**Important:** a near match can still represent an exception because its amount/date may differ.
+
+---
+
+## Classification Accuracy
+
+The classifier evaluates:
+
+```text
+74 classified items
+```
+
+This includes:
+
+```text
+66 ledger transactions
++
+8 statement-only records
+=
+74 classified items
+```
+
+Current result:
+
+```text
+70 correct / 74 scored = 94.6%
+```
+
+The scoring also treats a safe `_needs_review` prediction as correct when the ground truth explicitly identifies the case as `ambiguous_amount`.
+
+This reflects an important finance principle:
+
+> **Escalating an uncertain transaction can be the correct behavior.**
+
+---
+
+## Deterministic Automation Rate
+
+```text
+67 / 74 = 90.5%
+```
+
+This measures the portion of classified items resolved without requiring the AI investigator.
+
+---
+
+## AI Investigation
+
+The current dataset sends:
+
+```text
+7 ambiguous cases
+```
+
+to the AI investigator.
+
+Of these:
+
+```text
+6 → auto-resolved
+1 → human escalation
+```
+
+---
+
+## Zero-Human-Action Rate
+
+The complete loop closes automatically for:
+
+```text
+73 / 74 = 98.6%
+```
+
+This metric is intentionally different from deterministic automation because some cases are resolved by the AI investigator after deterministic rules have exhausted their options.
+
+---
+
+# 🔐 Ground-Truth Evaluation
+
+The project includes:
+
+```text
+data/ground_truth.csv
+```
+
+as a separate evaluation answer key.
+
+The important distinction is:
+
+**The reconciliation engine does not use the ground truth to make its predictions.**
+
+The classification functions:
+
+```text
+classify_near_match()
+classify_unmatched()
+```
+
+do not read `ground_truth.csv`.
+
+The ground-truth file is loaded **only afterward** by:
+
+```text
+score_against_ground_truth()
+```
+
+to evaluate the engine's output.
+
+In other words:
+
+```text
+Ledger + Bank Statement
+        │
+        ▼
+   Reconciliation
+        │
+        ▼
+   Predictions
+        │
+        ├──────────────► Ground Truth
+        │                    │
+        ▼                    ▼
+   Evaluation          Accuracy Metrics
+```
+
+This keeps prediction and evaluation logically separated.
+
+---
+
+# 🤖 AI Architecture
+
+Recon uses a **bounded AI investigator**, not an LLM-driven reconciliation engine.
+
+The AI is only called after deterministic processing identifies an ambiguous case.
+
+### AI flow
+
+```text
+Exception
+   │
+   ▼
+Prepare transaction context
+   │
+   ▼
+Send to LLM
+   │
+   ▼
+Structured response
+   │
+   ├── classification
+   ├── reasoning
+   ├── recommendation
+   └── confidence
+   │
+   ▼
+Validate response
+   │
+   ▼
+Confidence routing
+   │
+   ├── >= 0.85 → Auto-resolve
+   │
+   └── < 0.85  → Human review
+```
+
+---
+
+# 🛡️ AI Safety Boundary
+
+The model does **not** directly modify transactions.
+
+It cannot:
+
+- Move money
+- Edit the ledger
+- Initiate refunds
+- Initiate settlements
+- Approve payments
+- Delete financial records
+
+The AI only produces an investigation result and recommendation.
+
+The system then applies a deterministic confidence policy.
+
+> **The model can recommend. It cannot move money.**
+
+This separation is intentional.
+
+---
+
+# 🧩 Technology Stack
+
+| Component | Technology |
+|---|---|
+| Language | Python |
+| Data processing | Pandas |
+| Reconciliation | Custom Python rules |
+| Fuzzy matching | Python / similarity logic |
+| AI investigator | Groq API |
+| AI model | `openai/gpt-oss-20b` |
+| Dashboard | Streamlit |
+| Visualization | Plotly |
+| Data format | CSV / JSON |
+| Version control | Git / GitHub |
+
+---
+
+# 📁 Project Structure
+
+```text
+recon/
+│
+├── data/
+│   ├── bank_statement.csv
+│   ├── ground_truth.csv
+│   ├── internal_ledger.csv
+│   └── reconciliation_report.json
+│
+├── src/
+│   ├── dashboard.py
+│   ├── generate_data.py
+│   ├── investigate.py
+│   ├── llm_investigator.py
+│   └── reconcile.py
+│
+├── .gitignore
+├── README.md
+└── requirements.txt
+```
+
+---
+
+# ⚙️ How the Pipeline Works
+
+## Step 1 — Load the data
+
+Recon loads:
+
+```text
+Internal Ledger
+      +
+Bank Statement
+```
+
+---
+
+## Step 2 — Normalize
+
+Fields such as:
+
+- Transaction IDs
+- Merchant names
+- Dates
+- Amounts
+
+are normalized before comparison.
+
+---
+
+## Step 3 — Exact reconciliation
+
+The engine first attempts high-confidence transaction ID matching.
+
+```text
+transaction_id
+       │
+       ▼
+Exact match?
+   │       │
+  YES      NO
+   │       │
+   ▼       ▼
+Continue  Fuzzy matching
+```
+
+---
+
+## Step 4 — Compare attributes
+
+For matched transaction IDs, Recon checks:
+
+```text
+Amount
+Date
+Merchant
+```
+
+Differences are classified into known exception types.
+
+---
+
+## Step 5 — Fuzzy matching
+
+If an exact ID match is unavailable, Recon attempts candidate matching using transaction attributes.
+
+---
+
+## Step 6 — Rule-based classification
+
+Known patterns are resolved without AI.
+
+Examples:
+
+```text
+Small amount difference
+        ↓
+Rounding
+
+Date outside normal date
+        ↓
+Date shift
+
+Duplicate transaction
+        ↓
+Duplicate in statement
+```
+
+---
+
+## Step 7 — AI investigation
+
+Only unresolved ambiguous cases are sent to the LLM.
+
+---
+
+## Step 8 — Confidence routing
+
+```text
+AI confidence >= 0.85
+        ↓
+Auto-resolve
+
+AI confidence < 0.85
+        ↓
+Human review
+```
+
+---
+
+## Step 9 — Audit report
+
+The pipeline writes:
+
+```text
+data/reconciliation_report.json
+```
+
+which powers the dashboard and preserves the reconciliation results.
+
+---
+
+# 🖥️ Dashboard
+
+Recon includes a Streamlit dashboard for finance-controller-style monitoring.
+
+The dashboard provides:
+
+### Executive KPIs
+
+- Total transactions
+- Matched transactions
+- Exceptions flagged
+- Match rate
+- Deterministic automation
+- AI investigations
+- AI auto-resolutions
+- Human escalations
+
+### Validation
+
+- Ground-truth accuracy
+- Correct predictions
+- Scored items
+
+### Loop Closure
+
+Shows how the entire exception workflow was resolved:
+
+```text
+74 classified items
+        │
+        ├── 67 deterministic
+        ├── 6 AI auto-resolved
+        └── 1 human escalation
+```
+
+Result:
+
+```text
+73 / 74
+98.6% zero-human-action
+```
+
+### Exception Analysis
+
+The dashboard also displays the distribution of classifications, individual transaction decisions, AI reasoning, and processing throughput.
+
+---
+
+# ▶️ Running the Project
+
+## 1. Clone the repository
+
+```bash
+git clone https://github.com/khindimegha-hub/recon.git
+cd recon
+```
+
+---
+
+## 2. Create a virtual environment
+
+### Windows
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+### macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+---
+
+## 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
-python src/generate_data.py      # generates ledger, statement, and ground truth
-python src/reconcile.py          # deterministic matching + rule classification + throughput
-python src/investigate.py        # full pipeline + LLM investigation + confidence-based routing (requires GROQ_API_KEY)
-streamlit run src/dashboard.py   # visual dashboard
 ```
 
-Set your Groq API key first: `$env:GROQ_API_KEY="your-key"` (PowerShell) or `export GROQ_API_KEY="your-key"` (bash).
+---
+
+# 🔑 Configure the AI API
+
+Recon uses the Groq API for ambiguous exception investigation.
+
+Set your API key as an environment variable.
+
+### Windows PowerShell
+
+```powershell
+$env:GROQ_API_KEY="your_api_key_here"
+```
+
+### Windows CMD
+
+```cmd
+set GROQ_API_KEY=your_api_key_here
+```
+
+### macOS / Linux
+
+```bash
+export GROQ_API_KEY="your_api_key_here"
+```
+
+Do **not** commit your API key to GitHub.
+
+---
+
+# 🧪 Run Reconciliation
+
+Run the deterministic reconciliation engine:
+
+```bash
+python src/reconcile.py
+```
+
+This produces metrics for:
+
+- Matching
+- Classification
+- Accuracy
+- Automation
+- Throughput
+
+---
+
+# 🤖 Run the Full Investigation Loop
+
+Run the complete reconciliation + AI investigation pipeline:
+
+```bash
+python src/investigate.py
+```
+
+This performs:
+
+```text
+Reconciliation
+      ↓
+Exception detection
+      ↓
+Ambiguous-case routing
+      ↓
+AI investigation
+      ↓
+Confidence evaluation
+      ↓
+Auto-resolution / human escalation
+      ↓
+Audit report
+```
+
+The resulting report is written to:
+
+```text
+data/reconciliation_report.json
+```
+
+---
+
+# 📊 Launch the Dashboard
+
+Run:
+
+```bash
+streamlit run src/dashboard.py
+```
+
+Then open the local Streamlit URL shown in the terminal.
+
+---
+
+# 🔄 Complete Demo Flow
+
+For the complete demonstration, run:
+
+```bash
+python src/reconcile.py
+python src/investigate.py
+streamlit run src/dashboard.py
+```
+
+Recommended demo sequence:
+
+```text
+1. Run reconciliation
+        ↓
+2. Show deterministic matching
+        ↓
+3. Show exception classification
+        ↓
+4. Run AI investigation
+        ↓
+5. Show confidence-based routing
+        ↓
+6. Show 6 AI auto-resolutions
+        ↓
+7. Show 1 human escalation
+        ↓
+8. Open dashboard
+        ↓
+9. Show audit report and metrics
+```
+
+---
+
+# 📈 Why This Approach Scales Better Than "LLM Everything"
+
+A naive AI reconciliation system could send every transaction to an LLM:
+
+```text
+66 transactions
+      ↓
+66 LLM calls
+      ↓
+Higher cost
+Higher latency
+Less predictable behavior
+```
+
+Recon instead does:
+
+```text
+66 transactions
+      ↓
+Deterministic reconciliation
+      ↓
+Known cases resolved cheaply
+      ↓
+Only ambiguous cases → AI
+      ↓
+7 AI investigations
+```
+
+For this dataset:
+
+```text
+74 classified items
+67 deterministic resolutions
+7 AI investigations
+```
+
+That means the AI layer is focused on the part of the workflow where reasoning actually adds value.
+
+---
+
+# 💡 Why Hybrid AI?
+
+Financial systems require more than high accuracy.
+
+They also need:
+
+- Explainability
+- Predictability
+- Auditability
+- Low latency
+- Controlled failure modes
+- Human oversight
+
+Deterministic rules are excellent for known patterns.
+
+LLMs are useful for ambiguous context.
+
+Humans remain the final authority when the system is uncertain.
+
+Therefore:
+
+```text
+Rules → Known problems
+AI → Ambiguous problems
+Human → Uncertain problems
+```
+
+This is the central architecture behind Recon.
+
+---
+
+# 🏦 Finance-Controller Perspective
+
+Recon is designed around the workflow of a finance controller rather than around an AI demo.
+
+Instead of asking:
+
+> "Can an LLM classify transactions?"
+
+the system asks:
+
+> "How much of the reconciliation loop can be safely closed without human intervention?"
+
+That changes the success metric.
+
+The important numbers become:
+
+```text
+Match coverage
+      +
+Automation rate
+      +
+AI resolution rate
+      +
+Human escalation rate
+      +
+Auditability
+```
+
+The current pipeline demonstrates:
+
+```text
+97.0% ledger match coverage
+
+90.5% deterministic automation
+
+6/7 AI cases auto-resolved
+
+1/7 AI cases escalated
+
+98.6% zero-human-action loop closure
+```
+
+---
+
+# 🧠 Engineering Decisions
+
+## Why not use the ground truth during reconciliation?
+
+Because that would leak evaluation information into the prediction pipeline.
+
+The engine makes its decisions from:
+
+```text
+Ledger
++
+Bank statement
++
+Reconciliation rules
++
+AI investigation
+```
+
+Ground truth is consulted only after predictions have been generated.
+
+---
+
+## Why not send every transaction to AI?
+
+Because deterministic rules are:
+
+- Faster
+- Cheaper
+- More predictable
+- Easier to audit
+
+The LLM is reserved for ambiguity.
+
+---
+
+## Why use confidence thresholds?
+
+A model's recommendation should not automatically become a financial action.
+
+Confidence creates a controlled boundary:
+
+```text
+High confidence
+      ↓
+Automation
+
+Low confidence
+      ↓
+Human review
+```
+
+---
+
+## Why keep human escalation?
+
+Because uncertainty is a valid system outcome.
+
+A finance automation system should not force a decision when evidence is insufficient.
+
+A good reconciliation engine should be able to say:
+
+> **"I don't know — please review this."**
+
+---
+
+# 🐛 Engineering Challenges & What Broke
+
+Building the pipeline exposed several practical engineering problems.
+
+## 1. JSON serialization of Pandas timestamps
+
+Pandas timestamps are not directly JSON serializable.
+
+The reconciliation report initially failed when writing timestamp values into JSON.
+
+The solution was to normalize timestamp values before serialization.
+
+---
+
+## 2. AI API credit limitations
+
+The initial AI integration used an API configuration that could not complete requests because of account credit limitations.
+
+The AI layer was moved to Groq so the project could continue using a compatible API-based LLM workflow.
+
+---
+
+## 3. Model availability
+
+Rather than assuming a model name was available, the available model list was queried and the integration was updated to use:
+
+```text
+openai/gpt-oss-20b
+```
+
+This made the integration depend on an actually available model rather than a guessed identifier.
+
+---
+
+## 4. Dashboard rendering
+
+The first dashboard implementation had rendering problems caused by the interaction between Streamlit's Markdown/CommonMark rendering and custom HTML.
+
+The dashboard was redesigned around Streamlit components, Plotly, and controlled HTML rendering rather than relying on fragile nested Markdown/HTML combinations.
+
+---
+
+## 5. Metric denominator mismatch
+
+During dashboard development, different metrics accidentally used different populations.
+
+For example:
+
+```text
+66 ledger transactions
+```
+
+and:
+
+```text
+74 classified items
+```
+
+represent different denominators.
+
+The dashboard was corrected so that each metric explicitly describes its population.
+
+This is especially important for finance analytics because a mathematically correct number can still be misleading if the denominator is unclear.
+
+---
+
+## 6. Loop-closure population
+
+The final loop closure metric includes:
+
+```text
+66 ledger transactions
++
+8 statement-only records
+=
+74 classified items
+```
+
+Therefore:
+
+```text
+73 / 74
+```
+
+is the correct zero-human-action rate.
+
+This distinction prevents incorrectly reporting something like:
+
+```text
+73 / 66
+```
+
+which would mix two different populations.
+
+---
+
+# ⚠️ Known Limitations
+
+Recon is a buildathon-scale prototype, not a production banking system.
+
+### 1. Synthetic dataset
+
+The current evaluation uses synthetic transaction data.
+
+Real financial systems would require much larger and more diverse datasets.
+
+---
+
+### 2. Limited AI context
+
+The AI investigator currently receives a constrained transaction context.
+
+A production implementation could incorporate:
+
+- Historical transactions
+- Merchant profiles
+- Fee schedules
+- Settlement batches
+- Payment gateway metadata
+- Bank-specific rules
+- Previous reconciliation decisions
+
+---
+
+### 3. Fuzzy matching strategy
+
+The current fuzzy matcher uses a greedy first-valid-match strategy.
+
+A production implementation should use globally optimized candidate assignment to reduce the risk of suboptimal matches when multiple transactions are similar.
+
+---
+
+### 4. Confidence calibration
+
+The current confidence threshold:
+
+```text
+0.85
+```
+
+is a prototype policy rather than a statistically calibrated probability.
+
+A production system should calibrate confidence using historical labeled reconciliation outcomes.
+
+---
+
+### 5. AI retry and recovery
+
+The prototype does not yet implement a sophisticated retry strategy for failed AI calls.
+
+A production system should handle:
+
+- Rate limits
+- Timeouts
+- Invalid model responses
+- API failures
+- Malformed JSON
+- Temporary service outages
+
+---
+
+### 6. Limited test coverage
+
+The current repository does not yet contain a comprehensive automated test suite or CI pipeline.
+
+Production deployment would require tests for:
+
+- Exact matching
+- Fuzzy matching
+- Duplicate detection
+- Date tolerance
+- Amount tolerance
+- Classification
+- AI response validation
+- Confidence routing
+- Report generation
+
+---
+
+# 🔮 Future Improvements
+
+A production-grade version of Recon could add:
+
+### Data & reconciliation
+
+- PostgreSQL-backed transaction storage
+- Large-scale batch processing
+- Globally optimized fuzzy matching
+- Multi-bank adapters
+- Settlement reconciliation
+- Payment gateway reconciliation
+- Fee reconciliation
+
+### AI
+
+- Retrieval from historical reconciliation decisions
+- Merchant-specific context
+- Tool-using investigation agents
+- Confidence calibration
+- Model fallback
+- Structured output validation
+- Human feedback loops
+
+### Operations
+
+- Role-based access control
+- Authentication
+- Approval workflows
+- Full audit logging
+- Alerting
+- Scheduled reconciliation
+- Background job processing
+
+### Infrastructure
+
+- Docker
+- REST API
+- Celery / task queues
+- PostgreSQL
+- Redis
+- CI/CD
+- Cloud deployment
+- Observability
+
+---
+
+# 🏆 Buildathon Alignment
+
+Recon is designed around the core requirements of an AI finance-controller workflow.
+
+### Multi-source reconciliation
+
+```text
+Internal ledger
+       +
+Bank statement
+       ↓
+Reconciliation engine
+```
+
+### Measured performance
+
+The system reports:
+
+```text
+Match rate
+Classification accuracy
+Automation rate
+AI resolution
+Human escalation
+Throughput
+```
+
+### Exception handling
+
+Instead of pretending every transaction can be automatically resolved, Recon exposes unresolved and escalated cases.
+
+### AI where it matters
+
+The LLM is intentionally limited to ambiguous exceptions rather than being used as the primary reconciliation mechanism.
+
+### Human-in-the-loop
+
+Low-confidence AI results are escalated instead of being silently accepted.
+
+### Auditability
+
+Every reconciliation decision can be traced through the generated report.
+
+---
+
+# 🎯 What Makes Recon Different
+
+The interesting part of Recon is not simply:
+
+> "It uses AI."
+
+The important part is the **division of responsibility**.
+
+```text
+                 RECON
+                   │
+       ┌───────────┴───────────┐
+       │                       │
+ Deterministic              AI
+    Engine               Investigator
+       │                       │
+ Known patterns           Ambiguous cases
+       │                       │
+       └───────────┬───────────┘
+                   │
+                   ▼
+             Confidence
+                Router
+                   │
+          ┌────────┴────────┐
+          │                 │
+     Auto-resolve       Human review
+```
+
+The system is designed to maximize automation **without pretending uncertainty does not exist**.
+
+---
+
+# 📌 One-Line Summary
+
+> **Recon is a hybrid AI ledger reconciliation engine that uses deterministic matching for routine transactions, AI investigation for ambiguous exceptions, and confidence-based human escalation to close the finance reconciliation loop safely.**
+
+---
+
+# 🔗 Repository
+
+GitHub:
+
+https://github.com/khindimegha-hub/recon
+
+---
+
+# 👩‍💻 Running the Demo
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run deterministic reconciliation
+python src/reconcile.py
+
+# Run AI investigation + loop closure
+python src/investigate.py
+
+# Launch dashboard
+streamlit run src/dashboard.py
+```
+
+---
+
+# 📜 License
+
+This project was created as a prototype for the Razorpay AI Buildathon 2026.
