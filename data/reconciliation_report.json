@@ -1,0 +1,112 @@
+{
+  "generated_at": "2026-09-04T09:54:32.965699+00:00",
+  "total_ledger_transactions": 66,
+  "total_items_classified": 74,
+  "throughput_txn_per_sec": 1714.1,
+  "accuracy_vs_ground_truth": {
+    "total_scored": 74,
+    "correct": 70,
+    "accuracy_pct": 94.6
+  },
+  "rule_resolved_count": 67,
+  "ai_auto_resolved_count": 6,
+  "escalated_to_human_count": 1,
+  "auto_resolve_confidence_threshold": 0.85,
+  "investigations": [
+    {
+      "txn_id": "TXN1015",
+      "exception_type": "amount_mismatch",
+      "probable_cause": "The ledger entry likely omitted additional fees or taxes present in the statement",
+      "confidence": 0.85,
+      "evidence": [
+        "ledger amount 14497.2 vs statement 14070.99 (difference 426.21)",
+        "date and merchant match in both records"
+      ],
+      "recommended_action": "Review the original invoice and supporting documents to identify the missing charges and reconcile the amounts",
+      "severity": "high",
+      "routed_to": "auto_resolved"
+    },
+    {
+      "txn_id": "TXN1016",
+      "exception_type": "amount_mismatch",
+      "probable_cause": "The transaction amounts differ, likely due to a misposting or rounding error between the ledger and statement records.",
+      "confidence": 0.9,
+      "evidence": [
+        "Ledger amount 1288.74 does not match statement amount 821.87 for transaction TXN1016",
+        "Both records share the same date, merchant, and transaction ID"
+      ],
+      "recommended_action": "Cross\u2011check the original payment source and reconcile the correct amount between the ledger and statement.",
+      "severity": "high",
+      "routed_to": "auto_resolved"
+    },
+    {
+      "txn_id": "TXN1024",
+      "exception_type": "amount_discrepancy",
+      "probable_cause": "The ledger posted an amount of 24739.66 while the statement shows 24570.32, indicating a possible posting error or data entry mistake.",
+      "confidence": 0.95,
+      "evidence": [
+        "Amount mismatch of 169.34 units",
+        "Same txn_id, date, and merchant in both records"
+      ],
+      "recommended_action": "Verify the source transaction details and correct the ledger entry if necessary",
+      "severity": "high",
+      "routed_to": "auto_resolved"
+    },
+    {
+      "txn_id": "TXN1028",
+      "exception_type": "amount_discrepancy",
+      "probable_cause": "The ledger and statement record show a $497.94 difference, likely due to a misposted amount or an unrecorded fee.",
+      "confidence": 0.93,
+      "evidence": [
+        "ledger amount 22841.43 vs statement amount 22343.49",
+        "both records share same date, merchant and txn_id"
+      ],
+      "recommended_action": "Verify the original receipt and banking statement for any additional charges or rounding that could explain the $497.94 difference.",
+      "severity": "high",
+      "routed_to": "auto_resolved"
+    },
+    {
+      "txn_id": "TXN1032",
+      "exception_type": "amount_mismatch",
+      "probable_cause": "The ledger and statement amounts differ by $310.63, likely due to a fee or misrecorded amount.",
+      "confidence": 0.8,
+      "evidence": [
+        "ledger_amount 18662.98",
+        "statement_amount 18352.35",
+        "same_date 2026-08-18",
+        "same_merchant Myntra"
+      ],
+      "recommended_action": "Check the transaction details with the merchant or bank to confirm the correct amount.",
+      "severity": "medium",
+      "routed_to": "escalated_to_human"
+    },
+    {
+      "txn_id": "TXN1038",
+      "exception_type": "amount_mismatch",
+      "probable_cause": "The recorded amounts differ by $86.05, indicating a possible misentry or processing error.",
+      "confidence": 0.9,
+      "evidence": [
+        "Ledger amount 14957.83",
+        "Statement amount 14871.78",
+        "Same txn_id, date, and merchant"
+      ],
+      "recommended_action": "Verify the transaction with the merchant or payment processor and correct the amount in the ledger if necessary.",
+      "severity": "high",
+      "routed_to": "auto_resolved"
+    },
+    {
+      "txn_id": "TXN1067",
+      "exception_type": "amount_mismatch",
+      "probable_cause": "A data entry or calculation error caused the transaction amount to differ between the ledger and the statement.",
+      "confidence": 0.92,
+      "evidence": [
+        "Ledger amount 6188.48 differs from statement amount 5775.29",
+        "Both records share same txn_id, date, and merchant",
+        "The discrepancy is significant (~413.19)"
+      ],
+      "recommended_action": "Review supporting documents for TXN1067 to verify the correct amount and reconcile the ledger with the statement accordingly.",
+      "severity": "high",
+      "routed_to": "auto_resolved"
+    }
+  ]
+}

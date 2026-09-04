@@ -4,18 +4,14 @@ Reconciliation engine: matches internal_ledger.csv against bank_statement.csv.
 Layer 1 (exact match): match on txn_id.
 Layer 2 (fuzzy match): for unmatched rows, match on merchant + amount
                        within tolerance + date within tolerance.
-Layer 3 (rule classification): name WHY each remaining discrepancy
-                       exists, using deterministic rules — not AI.
-Anything the rules can't confidently name is what would go to an
-LLM in Day 2.
+Anything left after both layers is a genuine exception.
 """
 
 import pandas as pd
+import time
 
 AMOUNT_TOLERANCE = 2.0   # rupees
 DATE_TOLERANCE_DAYS = 2
-AMOUNT_RULE_TOLERANCE = 2.0
-DATE_RULE_TOLERANCE_DAYS = 2
 
 
 def load_data(ledger_path="data/internal_ledger.csv", statement_path="data/bank_statement.csv"):
@@ -31,6 +27,8 @@ def exact_match(ledger, statement):
     matched_ledger = ledger[ledger["txn_id"].isin(common_ids)].copy()
     matched_statement = statement[statement["txn_id"].isin(common_ids)].copy()
 
+    # Even with matching IDs, amount/date could still differ slightly —
+    # those go to fuzzy layer for classification, not treated as clean matches.
     merged = matched_ledger.merge(
         matched_statement, on="txn_id", suffixes=("_ledger", "_statement")
     )
@@ -87,8 +85,16 @@ def fuzzy_match(unmatched_ledger, unmatched_statement):
     return fuzzy_df, remaining_ledger, remaining_statement
 
 
+AMOUNT_RULE_TOLERANCE = 2.0
+DATE_RULE_TOLERANCE_DAYS = 2
+
+
 def classify_near_match(row):
-    """Names WHY an id-matched row differs, using fixed rules."""
+    """
+    Deterministic rule classification for id-matched rows where amount
+    or date differ. This is what replaces 'the AI thinks these match'
+    with a named, auditable rule.
+    """
     amount_diff = abs(row["amount_ledger"] - row["amount_statement"])
     date_diff = abs((row["date_ledger"] - row["date_statement"]).days)
 
@@ -97,12 +103,12 @@ def classify_near_match(row):
     if date_diff > 0 and amount_diff == 0 and date_diff <= DATE_RULE_TOLERANCE_DAYS:
         return "date_shift"
     if amount_diff > AMOUNT_RULE_TOLERANCE:
-        return "amount_mismatch_needs_review"
+        return "amount_mismatch_needs_review"  # ambiguous -> goes to LLM
     return "unclassified_needs_review"
 
 
 def classify_unmatched(row, side):
-    """Names WHY a row has no counterpart at all."""
+    """Rule classification for rows with no counterpart id at all."""
     if row["txn_id"].endswith("_DUP"):
         return "duplicate_in_statement"
     return "missing_in_statement" if side == "ledger" else "missing_in_ledger"
@@ -127,12 +133,15 @@ def score_against_ground_truth(classified_df, ground_truth_path="data/ground_tru
             return True
         return False
 
-    correct = merged.apply(is_correct, axis=1).sum()
+    correct = int(merged.apply(is_correct, axis=1).sum())
     total = len(merged)
     accuracy = correct / total * 100
     return {"total_scored": total, "correct": correct, "accuracy_pct": round(accuracy, 1)}
 
+
 def run_reconciliation():
+    start_time = time.perf_counter()
+
     ledger, statement = load_data()
     total = len(ledger)
 
@@ -142,6 +151,7 @@ def run_reconciliation():
     matched_count = len(clean) + len(near) + len(fuzzy_df)
     exception_count = len(remaining_ledger) + len(remaining_statement)
 
+    # --- Rule-based classification (this is the "taxonomy" upgrade) ---
     classified_rows = []
     for _, row in near.iterrows():
         classified_rows.append({"txn_id": row["txn_id"], "predicted_label": classify_near_match(row)})
@@ -155,6 +165,9 @@ def run_reconciliation():
     classified_df = pd.DataFrame(classified_rows)
     needs_llm = classified_df[classified_df["predicted_label"].str.endswith("_needs_review")]
     scoring = score_against_ground_truth(classified_df)
+
+    elapsed_seconds = time.perf_counter() - start_time
+    throughput = total / elapsed_seconds if elapsed_seconds > 0 else float("inf")
 
     print("=== Reconciliation Report ===")
     print(f"Total ledger transactions:     {total}")
@@ -170,11 +183,15 @@ def run_reconciliation():
         print(f"\n--- Accuracy vs. ground truth ---")
         print(f"Scored: {scoring['total_scored']} | Correct: {scoring['correct']} | "
               f"Accuracy: {scoring['accuracy_pct']}%")
+    print(f"\n--- Throughput ---")
+    print(f"Processed {total} transactions in {elapsed_seconds*1000:.1f}ms "
+          f"({throughput:.0f} transactions/sec, deterministic layer only)")
 
     return {
         "clean": clean, "near": near, "fuzzy": fuzzy_df,
         "unmatched_ledger": remaining_ledger, "unmatched_statement": remaining_statement,
         "classified": classified_df, "needs_llm": needs_llm, "scoring": scoring,
+        "throughput": {"total": total, "elapsed_seconds": elapsed_seconds, "txn_per_sec": throughput},
     }
 
 
