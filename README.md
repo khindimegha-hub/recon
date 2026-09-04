@@ -686,6 +686,7 @@ which powers the dashboard and preserves the reconciliation results.
 ---
 
 # 🖥️ Dashboard
+![Recon Dashboard](screenshot/dashboard.png)
 
 Recon includes a Streamlit dashboard for finance-controller-style monitoring.
 
