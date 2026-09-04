@@ -310,9 +310,9 @@ Results from the current pipeline:
 
 ### Throughput
 
-Local deterministic runs have processed the dataset at **900+ transactions/sec**.
+Local deterministic runs have varied between roughly **500 and 3,000+ transactions/sec** across repeated executions on the same machine.
 
-Actual throughput varies with machine, Python process startup, file I/O, and run timing, so the benchmark should be treated as an observed local performance measurement rather than a production capacity guarantee.
+This variance is itself informative: throughput depends heavily on machine load, Python process startup, and file I/O at the moment of each run, so the benchmark should be treated as an observed local performance range rather than a fixed guaranteed number.
 
 ---
 
@@ -1112,9 +1112,7 @@ This made the integration depend on an actually available model rather than a gu
 
 ## 4. Dashboard rendering
 
-The first dashboard implementation had rendering problems caused by the interaction between Streamlit's Markdown/CommonMark rendering and custom HTML.
-
-The dashboard was redesigned around Streamlit components, Plotly, and controlled HTML rendering rather than relying on fragile nested Markdown/HTML combinations.
+The first dashboard implementation used `st.bar_chart` and `st.dataframe` with a custom dark theme applied via a `.streamlit/config.toml` file — but the chart and table kept rendering with a white background regardless. Rather than spend further time diagnosing exactly why Streamlit's theme config wasn't propagating to those specific native components, the dashboard was rebuilt using Plotly (for the chart) and hand-written HTML (for the table), with every color set explicitly in code. This removes the dependency on framework theme inheritance working as documented, at the cost of writing more styling code directly.
 
 ---
 
@@ -1169,6 +1167,16 @@ This distinction prevents incorrectly reporting something like:
 ```
 
 which would mix two different populations.
+
+---
+
+## 7. Dashboard silently displaying inverted AI routing numbers
+
+The most serious bug found in this project. `investigate.py` writes its audit report as flat top-level JSON keys (`ai_auto_resolved_count`, `escalated_to_human_count`). The dashboard's parsing code, however, looked for a *nested* dictionary under `loop_closure_summary` or `summary`, using different key names entirely. Since that nested structure never existed in the real file, the lookup always silently failed and fell back to a default assumption — one that always displayed zero human escalations, regardless of what actually happened during the AI investigation.
+
+This was caught by directly comparing the dashboard's displayed values against `investigate.py`'s own terminal output for the same run, rather than trusting that a dashboard showing plausible-looking numbers meant the numbers were correct. Fixed by reading the report's actual flat structure directly, with no nested-key guessing.
+
+This is the one bug on this list that would not have caused a crash or an obviously wrong number — a dashboard confidently showing "0 escalations" looks correct at a glance. It's a reminder that a value passing a sanity check (is it a plausible number?) is not the same as it passing a correctness check (does it match the source of truth?).
 
 ---
 
