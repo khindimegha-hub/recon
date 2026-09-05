@@ -8,35 +8,36 @@ Any business that touches money ends up with at least two independent records of
 
 ## Approach
 
-The core decision I made early on was to **not send every transaction to an LLM**.
+The core decision I made early on was to not send every transaction to an LLM. If a rule can prove the answer — an exact ID match, a difference small enough to be rounding, a settlement delay within a normal window — there's no reason to pay for a model call or accept the unpredictability that comes with one. The LLM only gets involved once the deterministic layer has genuinely run out of explanations.
+Ledger + Statement
+|
+v
+Exact match (transaction ID)
+|
+v
+Fuzzy match (merchant + amount/date tolerance)
+|
+v
+Rule-based classification
+(rounding, date shift, duplicate, missing)
+|
 
-If a rule can prove the answer — an exact ID match, a small amount difference, or a settlement delay within an accepted window — there is no reason to pay for a model call or introduce unnecessary unpredictability.
+| |
+confidently genuinely
+classified ambiguous
+| |
+| v
+| LLM investigation
+| (structured, confidence-scored)
+confidence >= confidence
+0.85 0.85
 
-The LLM only gets involved when the deterministic layer cannot confidently explain the exception.
-
-```mermaid
-flowchart TD
-    A["Ledger + Bank Statement"] --> B["Exact Match<br/>Transaction ID"]
-    B --> C["Similarity Matching<br/>Merchant + Amount + Date"]
-    C --> D["Rule-Based Classification<br/>Rounding • Date Shift • Duplicate • Missing"]
-
-    D --> E{"Confidently Classified?"}
-
-    E -->|Yes| F["Resolve Deterministically"]
-    E -->|No| G["LLM Investigation"]
-
-    G --> H["Structured Output<br/>Classification + Evidence<br/>Recommendation + Confidence"]
-
-    H --> I{"Confidence >= 0.85?"}
-
-    I -->|Yes| J["Auto-Resolve"]
-    I -->|No| K["Escalate to Human"]
-
-    F --> L["Reconciliation Report"]
-    J --> L
-    K --> L
-
-    L --> M["Audit JSON + Dashboard"]
+auto-resolve escalate to human
+          |
+          v
+ Reconciliation report
+ + audit JSON + dashboard
+ 
 Once an exception reaches the LLM, its output isn't taken at face value either. It returns a classification, the evidence it based that on, a recommended action, and a confidence score, and that response is validated against a schema before anything uses it — a malformed or incomplete response falls back to "needs manual review" rather than being trusted. The confidence score itself then drives one more decision: above 0.85, the system auto-resolves the case; below it, the case is escalated to a human. At no point does the model touch a transaction directly. It classifies and recommends; the routing logic decides what happens next.
 
 ## Results
