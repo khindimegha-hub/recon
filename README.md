@@ -9,35 +9,43 @@ Any business that touches money ends up with at least two independent records of
 ## Approach
 
 The core decision I made early on was to not send every transaction to an LLM. If a rule can prove the answer — an exact ID match, a difference small enough to be rounding, a settlement delay within a normal window — there's no reason to pay for a model call or accept the unpredictability that comes with one. The LLM only gets involved once the deterministic layer has genuinely run out of explanations.
+
+```
 Ledger + Statement
-|
-v
-Exact match (transaction ID)
-|
-v
-Fuzzy match (merchant + amount/date tolerance)
-|
-v
-Rule-based classification
-(rounding, date shift, duplicate, missing)
-|
+        |
+        v
+  Exact match (transaction ID)
+        |
+        v
+  Fuzzy match (merchant + amount/date tolerance)
+        |
+        v
+  Rule-based classification
+  (rounding, date shift, duplicate, missing)
+        |
+   ------------------
+   |                |
+confidently      genuinely
+classified       ambiguous
+   |                |
+   |                v
+   |          LLM investigation
+   |          (structured, confidence-scored)
+   |                |
+   |         ---------------
+   |         |             |
+   |    confidence >=   confidence <
+   |       0.85            0.85
+   |         |             |
+   |    auto-resolve   escalate to human
+   |         |             |
+   -------------------------
+              |
+              v
+     Reconciliation report
+     + audit JSON + dashboard
+```
 
-| |
-confidently genuinely
-classified ambiguous
-| |
-| v
-| LLM investigation
-| (structured, confidence-scored)
-confidence >= confidence
-0.85 0.85
-
-auto-resolve escalate to human
-          |
-          v
- Reconciliation report
- + audit JSON + dashboard
- 
 Once an exception reaches the LLM, its output isn't taken at face value either. It returns a classification, the evidence it based that on, a recommended action, and a confidence score, and that response is validated against a schema before anything uses it — a malformed or incomplete response falls back to "needs manual review" rather than being trusted. The confidence score itself then drives one more decision: above 0.85, the system auto-resolves the case; below it, the case is escalated to a human. At no point does the model touch a transaction directly. It classifies and recommends; the routing logic decides what happens next.
 
 ## Results
@@ -80,20 +88,23 @@ Other things I know are incomplete: the fuzzy matcher uses a first-valid-match s
 Python and pandas for the deterministic matching and rule classification. Groq's API (`openai/gpt-oss-20b`) for the LLM investigation step, called only on the residual ambiguous cases. Streamlit and Plotly for the dashboard. A synthetic data generator that produces the ledger, the statement, and a hidden ground-truth file all at once, so the engine's own accuracy can be measured rather than assumed.
 
 ## Project structure
+
+```
 recon/
 ├── data/
-│ ├── bank_statement.csv
-│ ├── ground_truth.csv
-│ ├── internal_ledger.csv
-│ └── reconciliation_report.json
+│   ├── bank_statement.csv
+│   ├── ground_truth.csv
+│   ├── internal_ledger.csv
+│   └── reconciliation_report.json
 ├── src/
-│ ├── generate_data.py
-│ ├── reconcile.py
-│ ├── llm_investigator.py
-│ ├── investigate.py
-│ └── dashboard.py
+│   ├── generate_data.py
+│   ├── reconcile.py
+│   ├── llm_investigator.py
+│   ├── investigate.py
+│   └── dashboard.py
 ├── requirements.txt
 └── README.md
+```
 
 ## Running it
 
