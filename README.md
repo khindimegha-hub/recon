@@ -6,38 +6,37 @@ Recon reconciles an internal transaction ledger against a bank or payment gatewa
 
 Any business that touches money ends up with at least two independent records of the same transactions — what its own system logged, and what the bank or payment gateway actually shows. These two records drift apart constantly: a payment settles two days late, a fee gets deducted that wasn't accounted for, a retry creates a duplicate, a refund never makes it back into the ledger. Matching the obvious cases is trivial. The actual work in reconciliation is deciding what to do with everything that doesn't match cleanly, and today that's mostly done by hand in spreadsheets.
 
-## Approach
+**## Approach**
 
-The core decision I made early on was to not send every transaction to an LLM. If a rule can prove the answer — an exact ID match, a difference small enough to be rounding, a settlement delay within a normal window — there's no reason to pay for a model call or accept the unpredictability that comes with one. The LLM only gets involved once the deterministic layer has genuinely run out of explanations.
-Ledger + Statement
-|
-v
-Exact match (transaction ID)
-|
-v
-Fuzzy match (merchant + amount/date tolerance)
-|
-v
-Rule-based classification
-(rounding, date shift, duplicate, missing)
-|
+The core decision I made early on was to **not send every transaction to an LLM**.
 
-| |
-confidently genuinely
-classified ambiguous
-| |
-| v
-| LLM investigation
-| (structured, confidence-scored)
-confidence >= confidence
-0.85 0.85
+If a rule can prove the answer — an exact ID match, a small amount difference, or a settlement delay within an accepted window — there is no reason to pay for a model call or introduce unnecessary unpredictability.
 
-auto-resolve escalate to human
-          |
-          v
- Reconciliation report
- + audit JSON + dashboard
- 
+The LLM only gets involved when the deterministic layer cannot confidently explain the exception.
+
+```mermaid
+flowchart TD
+    A[Ledger + Bank Statement] --> B[Exact Match<br/>Transaction ID]
+    B --> C[Fuzzy / Similarity Matching<br/>Merchant + Amount + Date]
+    C --> D[Rule-Based Classification<br/>Rounding • Date Shift • Duplicate • Missing]
+
+    D --> E{Confidently Classified?}
+
+    E -->|Yes| F[Resolve Deterministically]
+    E -->|No| G[LLM Investigation]
+
+    G --> H[Structured Output<br/>Classification + Evidence<br/>Recommendation + Confidence]
+
+    H --> I{Confidence ≥ 0.85?}
+
+    I -->|Yes| J[Auto-Resolve]
+    I -->|No| K[Escalate to Human]
+
+    F --> L[Reconciliation Report]
+    J --> L
+    K --> L
+
+    L --> M[Audit JSON + Dashboard]
 Once an exception reaches the LLM, its output isn't taken at face value either. It returns a classification, the evidence it based that on, a recommended action, and a confidence score, and that response is validated against a schema before anything uses it — a malformed or incomplete response falls back to "needs manual review" rather than being trusted. The confidence score itself then drives one more decision: above 0.85, the system auto-resolves the case; below it, the case is escalated to a human. At no point does the model touch a transaction directly. It classifies and recommends; the routing logic decides what happens next.
 
 ## Results
