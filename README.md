@@ -79,19 +79,27 @@ Other things I know are incomplete: the fuzzy matcher uses a first-valid-match s
 
 Python and pandas for the deterministic matching and rule classification. Groq's API (`openai/gpt-oss-20b`) for the LLM investigation step, called only on the residual ambiguous cases. Streamlit and Plotly for the dashboard. A synthetic data generator that produces the ledger, the statement, and a hidden ground-truth file all at once, so the engine's own accuracy can be measured rather than assumed.
 
-## Project structure
+**## Project structure**
+
+```text
 recon/
+│
 ├── data/
-│ ├── bank_statement.csv
-│ ├── ground_truth.csv
-│ ├── internal_ledger.csv
-│ └── reconciliation_report.json
+│   ├── bank_statement.csv
+│   ├── ground_truth.csv
+│   ├── internal_ledger.csv
+│   └── reconciliation_report.json
+│
+├── screenshot/
+│   └── dashboard.png
+│
 ├── src/
-│ ├── generate_data.py
-│ ├── reconcile.py
-│ ├── llm_investigator.py
-│ ├── investigate.py
-│ └── dashboard.py
+│   ├── generate_data.py
+│   ├── reconcile.py
+│   ├── llm_investigator.py
+│   ├── investigate.py
+│   └── dashboard.py
+│
 ├── requirements.txt
 └── README.md
 
@@ -116,6 +124,22 @@ $env:GROQ_API_KEY="your-key-here"          # Windows PowerShell
 ```
 
 Without a key, it still runs — every ambiguous case just falls back to "needs manual review" instead of crashing, which is the same fallback behavior it uses if the API call itself fails for any other reason.
+
+**## Dashboard**
+
+The Streamlit dashboard provides a visual view of the reconciliation run, including:
+
+- Reconciliation coverage
+- Classification results
+- AI investigations
+- Human escalations
+- Transaction-level details
+- Audit information
+
+![Recon Dashboard](screenshot/dashboard.png)
+
+The dashboard is generated from the same reconciliation output and audit JSON used by the pipeline, allowing the displayed metrics to be checked against the underlying results.
+
 
 ## Repository
 
